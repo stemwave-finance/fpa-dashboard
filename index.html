@@ -161,6 +161,15 @@
   .chat-input { flex: 1; font-size: 13px; padding: 8px 10px; border: 1px solid #e2e8f0; border-radius: 8px; }
   .chat-send { border: none; background: #0ea5e9; color: #fff; border-radius: 8px; padding: 0 14px; font-size: 12px; font-weight: 600; cursor: pointer; }
   .chat-send:hover { background: #0284c7; }
+  .chat-greet { position: fixed; right: 24px; bottom: 112px; max-width: 260px; background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; box-shadow: 0 8px 24px rgba(15,23,42,.15); padding: 12px 34px 12px 14px; z-index: 900; cursor: pointer; display: none; }
+  .chat-greet.show { display: block; animation: greetIn 0.25s ease-out; }
+  .chat-greet::after { content: ""; position: absolute; right: 30px; bottom: -7px; width: 12px; height: 12px; background: #fff; border-right: 1px solid #e2e8f0; border-bottom: 1px solid #e2e8f0; transform: rotate(45deg); }
+  .chat-greet-title { font-size: 13.5px; font-weight: 700; color: #0f172a; }
+  .chat-greet-sub { font-size: 12px; color: #64748b; margin-top: 3px; }
+  .chat-greet-close { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 16px; color: #94a3b8; cursor: pointer; line-height: 1; padding: 2px 4px; }
+  .chat-greet-close:hover { color: #0f172a; }
+  @keyframes greetIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  @media (prefers-reduced-motion: reduce) { .chat-greet.show { animation: none; } }
   @media (max-width: 640px) { .two-col, .three-col { grid-template-columns: 1fr; } .kpi-value { font-size: 17px; } .tab { padding: 8px 10px; font-size: 11px; } }
 </style>
 </head>
@@ -392,6 +401,12 @@
       <table class="data-table" id="kpi-modal-table"></table>
     </div>
   </div>
+</div>
+
+<div id="chat-greet" class="chat-greet" onclick="hideChatGreeting(); toggleChat();">
+  <button class="chat-greet-close" onclick="event.stopPropagation(); hideChatGreeting();" aria-label="Dismiss">&times;</button>
+  <div class="chat-greet-title" id="chat-greet-title">Hi!</div>
+  <div class="chat-greet-sub">I'm still in training &mdash; chat coming soon.</div>
 </div>
 
 <button id="chat-fab" class="chat-fab" onclick="toggleChat()" title="Ask about the numbers" aria-label="Open chat">
@@ -3547,8 +3562,73 @@ function toggleChat() {
   var sub = document.getElementById("chat-sub");
   if (sub && window.periodLabels && window.periodLabels.cur) { sub.textContent = "Viewing " + window.periodLabels.cur; }
   panel.className = "chat-panel open";
+  hideChatGreeting();
   var input = document.getElementById("chat-input");
   if (input) { input.focus(); }
+}
+
+window.chatGreetTimer = null;
+
+// Greeting names that can't be taken from the email address (lowercase emails)
+var GREETING_NAMES = {
+  "n.freedman@stemwave.com": "Noah",
+  "nathan@stemwave.com": "Nate"
+};
+
+function hideChatGreeting() {
+  var el = document.getElementById("chat-greet");
+  if (el) { el.className = "chat-greet"; }
+  if (window.chatGreetTimer) { clearTimeout(window.chatGreetTimer); window.chatGreetTimer = null; }
+}
+
+function firstNameFromEmail(email) {
+  var local = String(email || "").split("@")[0].split(/[._\-+]/)[0];
+  if (!local) { return ""; }
+  return local.charAt(0).toUpperCase() + local.slice(1).toLowerCase();
+}
+
+function showChatGreeting() {
+  if (window.chatGreetShown) { return; }
+  window.chatGreetShown = true;
+
+  var email = "";
+  try {
+    var stored = JSON.parse(localStorage.getItem(window.AUTH_SESSION_STORAGE_KEY) || "null");
+    if (stored && stored.email) { email = String(stored.email).toLowerCase(); }
+  } catch (e) { }
+
+  var hour = new Date().getHours();
+  var timeGreeting = hour < 12 ? "Good morning" : (hour < 18 ? "Good afternoon" : "Good evening");
+
+  function render(name) {
+    var title = document.getElementById("chat-greet-title");
+    var el = document.getElementById("chat-greet");
+    var panel = document.getElementById("chat-panel");
+    if (!title || !el) { return; }
+    if (panel && panel.className.indexOf("open") !== -1) { return; }
+    title.textContent = name ? ("Hi, " + name + "! " + timeGreeting + "!") : ("Hi! " + timeGreeting + "!");
+    el.className = "chat-greet show";
+    window.chatGreetTimer = setTimeout(hideChatGreeting, 10000);
+  }
+
+  // Optional DASHBOARD_USERS tab (Email | First Name) overrides the name taken from the email address
+  var fallback = GREETING_NAMES[email] || firstNameFromEmail(email);
+  var done = false;
+  function finish(name) { if (done) { return; } done = true; render(name); }
+  setTimeout(function () { finish(fallback); }, 2500);
+  fetchSheet("DASHBOARD_USERS").then(function (rows) {
+    for (var i = 0; i < rows.length; i++) {
+      var r = rows[i] || [];
+      if (String(r[0] || "").replace(/^\s+|\s+$/g, "").toLowerCase() === email && email) {
+        var nm = String(r[1] || "").replace(/^\s+|\s+$/g, "");
+        finish(nm || fallback);
+        return;
+      }
+    }
+    finish(fallback);
+  }, function () {
+    finish(fallback);
+  });
 }
 
 function addChatMsg(text, who) {
@@ -3677,6 +3757,7 @@ function resetLoginGate() {
 function unlockDashboard() {
   document.getElementById("login-gate").style.display = "none";
   loadAll();
+  setTimeout(showChatGreeting, 1200);
 }
 
 function checkStoredSession() {
