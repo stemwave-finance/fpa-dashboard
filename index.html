@@ -146,7 +146,10 @@
   .chat-panel.open { display: flex; }
   .chat-head { padding: 12px 14px; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; justify-content: space-between; }
   .chat-title { font-size: 13px; font-weight: 700; color: #0f172a; display: flex; align-items: center; gap: 8px; }
-  .chat-wip { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; background: #fef3c7; color: #b45309; border: 1px solid #fde68a; border-radius: 4px; padding: 2px 6px; }
+  .chat-wip { font-size: 10px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; background: #e0f2fe; color: #0284c7; border: 1px solid #bae6fd; border-radius: 4px; padding: 2px 6px; }
+  .chat-msg.thinking { color: #94a3b8; font-style: italic; }
+  .chat-msg.error { background: #fef2f2; border: 1px solid #fecaca; color: #dc2626; }
+  .chat-send:disabled { opacity: 0.5; cursor: default; }
   .chat-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
   .chat-close { background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; line-height: 1; padding: 2px 6px; }
   .chat-close:hover { color: #0f172a; }
@@ -406,7 +409,7 @@
 <div id="chat-greet" class="chat-greet" onclick="hideChatGreeting(); toggleChat();">
   <button class="chat-greet-close" onclick="event.stopPropagation(); hideChatGreeting();" aria-label="Dismiss">&times;</button>
   <div class="chat-greet-title" id="chat-greet-title">Hi!</div>
-  <div class="chat-greet-sub">I'm still in training &mdash; chat coming soon.</div>
+  <div class="chat-greet-sub">Ask me anything about the numbers.</div>
 </div>
 
 <button id="chat-fab" class="chat-fab" onclick="toggleChat()" title="Ask about the numbers" aria-label="Open chat">
@@ -429,15 +432,15 @@
 <div id="chat-panel" class="chat-panel">
   <div class="chat-head">
     <div>
-      <div class="chat-title">Ask about the numbers <span class="chat-wip">Work in progress</span></div>
+      <div class="chat-title">Ask about the numbers <span class="chat-wip">Beta</span></div>
       <div class="chat-sub" id="chat-sub">Viewing current period</div>
     </div>
     <button class="chat-close" onclick="toggleChat()" aria-label="Close chat">&times;</button>
   </div>
   <div class="chat-body" id="chat-body">
-    <div class="chat-msg bot">Hi! Soon you'll be able to ask me about the P&amp;L, balance sheet, cash flow, variances, and transactions for any period.
+    <div class="chat-msg bot">Hi! Ask me about the P&amp;L, balance sheet, cash flow, variances, or transactions for any period.
 
-This assistant is still a work in progress, so it can't answer questions yet.</div>
+I'm in beta, so double-check anything important against the reports.</div>
     <div class="chat-chips">
       <span class="chat-chip" onclick="sendChat(this.textContent)">Top 3 variances this month</span>
       <span class="chat-chip" onclick="sendChat(this.textContent)">Why is cash down?</span>
@@ -446,7 +449,7 @@ This assistant is still a work in progress, so it can't answer questions yet.</d
   </div>
   <div class="chat-input-row">
     <input id="chat-input" class="chat-input" type="text" placeholder="Ask about any period or account" onkeydown="if(event.key==='Enter'){sendChat();}">
-    <button class="chat-send" onclick="sendChat()">Send</button>
+    <button class="chat-send" id="chat-send" onclick="sendChat()">Send</button>
   </div>
 </div>
 
@@ -3638,17 +3641,84 @@ function addChatMsg(text, who) {
   div.textContent = text;
   body.appendChild(div);
   body.scrollTop = body.scrollHeight;
+  return div;
+}
+
+window.chatHistory = [];
+window.chatBusy = false;
+
+function getActiveTabName() {
+  var el = document.querySelector(".tab.active");
+  if (!el) { return ""; }
+  var group = el.parentNode && el.parentNode.parentNode ? el.parentNode.parentNode.querySelector(".nav-group-label:not(.invisible)") : null;
+  return (group ? group.textContent + " " : "") + el.textContent;
+}
+
+function getSessionToken() {
+  try {
+    var stored = JSON.parse(localStorage.getItem(window.AUTH_SESSION_STORAGE_KEY) || "null");
+    return (stored && stored.token) ? stored.token : "";
+  } catch (e) {
+    return "";
+  }
 }
 
 function sendChat(presetText) {
+  if (window.chatBusy) { return; }
   var input = document.getElementById("chat-input");
   var text = (presetText !== undefined ? String(presetText) : input.value).replace(/^\s+|\s+$/g, "");
   if (!text) { return; }
   input.value = "";
   addChatMsg(text, "user");
-  setTimeout(function () {
-    addChatMsg("Thanks! This assistant is still a work in progress, so it can't answer yet. Check back soon.", "bot");
-  }, 400);
+  window.chatHistory.push({ role: "user", content: text });
+
+  var sendBtn = document.getElementById("chat-send");
+  window.chatBusy = true;
+  if (sendBtn) { sendBtn.disabled = true; }
+  var thinking = addChatMsg("Looking that up\u2026", "bot thinking");
+
+  function finish(replyText, cls) {
+    thinking.className = "chat-msg " + cls;
+    thinking.textContent = replyText;
+    var body = document.getElementById("chat-body");
+    body.scrollTop = body.scrollHeight;
+    window.chatBusy = false;
+    if (sendBtn) { sendBtn.disabled = false; }
+  }
+
+  var payload = {
+    action: "chat",
+    token: getSessionToken(),
+    period: window.periodLabels ? window.periodLabels.cur : "",
+    tab: getActiveTabName(),
+    messages: window.chatHistory.slice(-12)
+  };
+
+  fetch(window.PERIOD_UPDATE_URL, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain;charset=utf-8" },
+    body: JSON.stringify(payload)
+  }).then(function (resp) {
+    return resp.text();
+  }).then(function (bodyText) {
+    var data = null;
+    try { data = JSON.parse(bodyText); } catch (e) { }
+    if (!data) {
+      window.chatHistory.pop();
+      finish("Sorry, something went wrong reaching the assistant. Please try again.", "bot error");
+      return;
+    }
+    if (data.status === "ok") {
+      window.chatHistory.push({ role: "assistant", content: data.reply });
+      finish(data.reply, "bot");
+    } else {
+      window.chatHistory.pop();
+      finish(data.message || "Sorry, something went wrong. Please try again.", "bot error");
+    }
+  }).catch(function (err) {
+    window.chatHistory.pop();
+    finish("Network error: " + (err && err.message ? err.message : String(err)), "bot error");
+  });
 }
 
 window.AUTH_SESSION_STORAGE_KEY = "stemwaveAuthSession";
@@ -3731,7 +3801,7 @@ function verifyOtpCode() {
       if (data && data.status === "ok") {
         var expiresAt = new Date().getTime() + (window.AUTH_SESSION_DAYS * 24 * 60 * 60 * 1000);
         try {
-          localStorage.setItem(window.AUTH_SESSION_STORAGE_KEY, JSON.stringify({ email: email, expiresAt: expiresAt }));
+          localStorage.setItem(window.AUTH_SESSION_STORAGE_KEY, JSON.stringify({ email: email, expiresAt: expiresAt, token: data.token || "" }));
         } catch (e) { }
         unlockDashboard();
       } else {
@@ -3766,7 +3836,7 @@ function checkStoredSession() {
     stored = JSON.parse(localStorage.getItem(window.AUTH_SESSION_STORAGE_KEY) || "null");
   } catch (e) { }
 
-  if (stored && stored.expiresAt && new Date().getTime() < stored.expiresAt && String(stored.email || "").split("@")[1] === "stemwave.com") {
+  if (stored && stored.token && stored.expiresAt && new Date().getTime() < stored.expiresAt && String(stored.email || "").split("@")[1] === "stemwave.com") {
     unlockDashboard();
   }
   // Otherwise, leave the login gate visible - it's shown by default.
