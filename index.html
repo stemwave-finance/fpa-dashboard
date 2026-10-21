@@ -153,6 +153,8 @@
   .chat-sub { font-size: 11px; color: #64748b; margin-top: 2px; }
   .chat-close { background: none; border: none; font-size: 20px; color: #94a3b8; cursor: pointer; line-height: 1; padding: 2px 6px; }
   .chat-close:hover { color: #0f172a; }
+  .chat-new { background: #fff; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 11.5px; font-weight: 600; color: #0284c7; cursor: pointer; padding: 4px 9px; margin-right: 4px; }
+  .chat-new:hover { background: #e0f2fe; border-color: #bae6fd; }
   .chat-body { flex: 1; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; background: #f8fafc; }
   .chat-msg { max-width: 85%; font-size: 12.5px; line-height: 1.5; padding: 8px 11px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
   .chat-msg.bot { align-self: flex-start; background: #fff; border: 1px solid #e2e8f0; color: #334155; }
@@ -436,7 +438,10 @@
       <div class="chat-title">Ask about the numbers <span class="chat-wip">Beta</span></div>
       <div class="chat-sub" id="chat-sub">Viewing current period</div>
     </div>
-    <button class="chat-close" onclick="toggleChat()" aria-label="Close chat">&times;</button>
+    <div style="display:flex;align-items:center;">
+      <button class="chat-new" onclick="newChat()" title="Start a new conversation">+ New chat</button>
+      <button class="chat-close" onclick="toggleChat()" aria-label="Close chat">&times;</button>
+    </div>
   </div>
   <div class="chat-body" id="chat-body">
     <div class="chat-msg bot">Hi! Ask me about the P&amp;L, balance sheet, cash flow, variances, or transactions for any period.
@@ -3565,6 +3570,7 @@ function toggleChat() {
   }
   var sub = document.getElementById("chat-sub");
   if (sub && window.periodLabels && window.periodLabels.cur) { sub.textContent = "Viewing " + window.periodLabels.cur; }
+  if (window.chatIntroHtml === null) { window.chatIntroHtml = document.getElementById("chat-body").innerHTML; }
   panel.className = "chat-panel open";
   hideChatGreeting();
   var input = document.getElementById("chat-input");
@@ -3647,6 +3653,22 @@ function addChatMsg(text, who) {
 
 window.chatHistory = [];
 window.chatBusy = false;
+window.chatGen = 0;
+window.chatIntroHtml = null;
+
+function newChat() {
+  var body = document.getElementById("chat-body");
+  if (window.chatIntroHtml === null) { return; }
+  window.chatGen = window.chatGen + 1;
+  window.chatHistory = [];
+  window.chatBusy = false;
+  var sendBtn = document.getElementById("chat-send");
+  if (sendBtn) { sendBtn.disabled = false; }
+  body.innerHTML = window.chatIntroHtml;
+  body.scrollTop = 0;
+  var input = document.getElementById("chat-input");
+  if (input) { input.value = ""; input.focus(); }
+}
 
 function getActiveTabName() {
   var el = document.querySelector(".tab.active");
@@ -3684,6 +3706,7 @@ function sendChat(presetText) {
     return;
   }
   var thinking = addChatMsg("Looking that up\u2026", "bot thinking");
+  var myGen = window.chatGen;
 
   function finish(replyText, cls) {
     thinking.className = "chat-msg " + cls;
@@ -3709,6 +3732,7 @@ function sendChat(presetText) {
   }).then(function (resp) {
     return resp.text();
   }).then(function (bodyText) {
+    if (myGen !== window.chatGen) { return; }
     var data = null;
     try { data = JSON.parse(bodyText); } catch (e) { }
     if (!data) {
@@ -3758,6 +3782,7 @@ function sendChat(presetText) {
       finish(data.message || "Sorry, something went wrong. Please try again.", "bot error");
     }
   }).catch(function (err) {
+    if (myGen !== window.chatGen) { return; }
     window.chatHistory.pop();
     finish("Network error: " + (err && err.message ? err.message : String(err)), "bot error");
   });
