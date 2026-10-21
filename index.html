@@ -3718,7 +3718,33 @@ function sendChat(presetText) {
     }
     if (data.status === "ok") {
       window.chatHistory.push({ role: "assistant", content: data.reply });
-      finish(data.reply, "bot");
+      // Lines like "OPTION: Vendor" become clickable choices
+      var lines = String(data.reply).split(/\r?\n/);
+      var textLines = [];
+      var options = [];
+      for (var li = 0; li < lines.length; li++) {
+        var om = lines[li].match(/^\s*OPTION:\s*(.+?)\s*$/i);
+        if (om) { options.push(om[1]); } else { textLines.push(lines[li]); }
+      }
+      finish(textLines.join("\n").replace(/^\s+|\s+$/g, ""), "bot");
+      if (options.length) {
+        var chipsEl = document.createElement("div");
+        chipsEl.className = "chat-chips";
+        for (var oi = 0; oi < options.length && oi < 6; oi++) {
+          var chip = document.createElement("span");
+          chip.className = "chat-chip";
+          chip.textContent = options[oi];
+          chip.onclick = function () {
+            var choice = this.textContent;
+            if (chipsEl.parentNode) { chipsEl.parentNode.removeChild(chipsEl); }
+            sendChat(choice);
+          };
+          chipsEl.appendChild(chip);
+        }
+        var chatBodyEl = document.getElementById("chat-body");
+        chatBodyEl.appendChild(chipsEl);
+        chatBodyEl.scrollTop = chatBodyEl.scrollHeight;
+      }
     } else if (data.status === "auth") {
       // Session no longer valid on the server: clear it and bring back the sign-in screen
       window.chatHistory.pop();
