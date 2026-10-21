@@ -213,6 +213,7 @@
     </select>
     <div id="period-label" class="period-badge">Loading period...</div>
     <button class="refresh-btn" onclick="loadAll()">Refresh</button>
+    <button class="refresh-btn" onclick="signOut()" title="Sign out">Sign out</button>
   </div>
 </div>
 
@@ -3675,6 +3676,13 @@ function sendChat(presetText) {
   var sendBtn = document.getElementById("chat-send");
   window.chatBusy = true;
   if (sendBtn) { sendBtn.disabled = true; }
+  if (!getSessionToken()) {
+    window.chatHistory.pop();
+    addChatMsg("Chat needs a fresh sign-in. Click Sign out (top right), then sign back in. If this keeps happening, the latest Apps Script version may not be deployed yet.", "bot error");
+    window.chatBusy = false;
+    if (sendBtn) { sendBtn.disabled = false; }
+    return;
+  }
   var thinking = addChatMsg("Looking that up\u2026", "bot thinking");
 
   function finish(replyText, cls) {
@@ -3711,6 +3719,14 @@ function sendChat(presetText) {
     if (data.status === "ok") {
       window.chatHistory.push({ role: "assistant", content: data.reply });
       finish(data.reply, "bot");
+    } else if (data.status === "auth") {
+      // Session no longer valid on the server: clear it and bring back the sign-in screen
+      window.chatHistory.pop();
+      finish("Your sign-in expired. Please sign in again, then ask your question.", "bot error");
+      try { localStorage.removeItem(window.AUTH_SESSION_STORAGE_KEY); } catch (e) { }
+      document.getElementById("chat-panel").className = "chat-panel";
+      document.getElementById("login-gate").style.display = "flex";
+      resetLoginGate();
     } else {
       window.chatHistory.pop();
       finish(data.message || "Sorry, something went wrong. Please try again.", "bot error");
@@ -3813,6 +3829,17 @@ function verifyOtpCode() {
       btn.textContent = "Verify";
       showLoginError("Network error: " + err.message);
     });
+}
+
+function signOut() {
+  try { localStorage.removeItem(window.AUTH_SESSION_STORAGE_KEY); } catch (e) { }
+  window.chatHistory = [];
+  var panel = document.getElementById("chat-panel");
+  if (panel) { panel.className = "chat-panel"; }
+  hideChatGreeting();
+  window.chatGreetShown = false;
+  document.getElementById("login-gate").style.display = "flex";
+  resetLoginGate();
 }
 
 function resetLoginGate() {
