@@ -550,7 +550,11 @@ function parseCSV(text) {
 function fetchSheet(sheetName) {
   var encoded = encodeURIComponent(sheetName).split("%20").join("+");
   var url = "https://docs.google.com/spreadsheets/d/" + window.SHEET_ID + "/gviz/tq?tqx=out:csv&sheet=" + encoded;
-  return fetch(url).then(function (res) {
+  // Give up after 60 seconds so a stuck Google request shows an error instead of loading forever
+  var timeout = new Promise(function (resolve, reject) {
+    setTimeout(function () { reject(new Error("Google Sheets took too long to return \"" + sheetName + "\". The spreadsheet may still be recalculating. Wait a minute and click Refresh.")); }, 60000);
+  });
+  return Promise.race([fetch(url), timeout]).then(function (res) {
     if (!res.ok) {
       throw new Error("Could not load sheet: " + sheetName + " (" + res.status + ")");
     }
