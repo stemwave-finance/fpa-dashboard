@@ -550,11 +550,7 @@ function parseCSV(text) {
 function fetchSheet(sheetName) {
   var encoded = encodeURIComponent(sheetName).split("%20").join("+");
   var url = "https://docs.google.com/spreadsheets/d/" + window.SHEET_ID + "/gviz/tq?tqx=out:csv&sheet=" + encoded;
-  // Give up after 3 minutes so a stuck Google request shows an error instead of loading forever
-  var timeout = new Promise(function (resolve, reject) {
-    setTimeout(function () { reject(new Error("Google Sheets took too long to return \"" + sheetName + "\". The spreadsheet may still be recalculating. Wait a minute and click Refresh.")); }, 180000);
-  });
-  return Promise.race([fetch(url), timeout]).then(function (res) {
+  return fetch(url).then(function (res) {
     if (!res.ok) {
       throw new Error("Could not load sheet: " + sheetName + " (" + res.status + ")");
     }
@@ -3711,13 +3707,6 @@ function sendChat(presetText) {
   }
   var thinking = addChatMsg("Looking that up\u2026", "bot thinking");
   var myGen = window.chatGen;
-  var settled = false;
-  var slowTimer = setTimeout(function () {
-    if (settled || myGen !== window.chatGen) { return; }
-    settled = true;
-    window.chatHistory.pop();
-    finish("This is taking longer than usual, so I stopped waiting. Try again, or narrow the question to one account and month.", "bot error");
-  }, 150000);
 
   function finish(replyText, cls) {
     thinking.className = "chat-msg " + cls;
@@ -3743,9 +3732,7 @@ function sendChat(presetText) {
   }).then(function (resp) {
     return resp.text();
   }).then(function (bodyText) {
-    if (settled || myGen !== window.chatGen) { return; }
-    settled = true;
-    clearTimeout(slowTimer);
+    if (myGen !== window.chatGen) { return; }
     var data = null;
     try { data = JSON.parse(bodyText); } catch (e) { }
     if (!data) {
@@ -3795,9 +3782,7 @@ function sendChat(presetText) {
       finish(data.message || "Sorry, something went wrong. Please try again.", "bot error");
     }
   }).catch(function (err) {
-    if (settled || myGen !== window.chatGen) { return; }
-    settled = true;
-    clearTimeout(slowTimer);
+    if (myGen !== window.chatGen) { return; }
     window.chatHistory.pop();
     finish("Network error: " + (err && err.message ? err.message : String(err)), "bot error");
   });
